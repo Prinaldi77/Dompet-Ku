@@ -5,6 +5,7 @@ import 'package:dompetku/core/security/app_lock_controller.dart';
 import 'package:dompetku/core/security/app_lock_store.dart';
 import 'package:dompetku/core/theme/theme_mode.dart';
 import 'package:dompetku/features/dashboard/dashboard_page.dart';
+import 'package:dompetku/features/lock/lock_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -79,6 +80,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('DompetKu terkunci'), findsNothing);
+    expect(find.byType(LockPage), findsNothing);
     expect(find.byType(DashboardPage), findsOneWidget);
   });
 

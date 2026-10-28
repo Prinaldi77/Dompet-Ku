@@ -180,9 +180,14 @@ class AppLockController extends Notifier<AppLockState> {
     );
   }
 
-  void notifyBackgrounded() => _backgroundedAt = _clock();
+  /// Android mengirim `hidden` lagi sesaat sebelum `resumed`, jadi jangan
+  /// menimpa waktu latar yang sudah tercatat atau auto-lock tidak pernah memicu.
+  void notifyBackgrounded() => _backgroundedAt ??= _clock();
 
   void notifyResumed() {
+    // Status biometrik bisa berubah saat aplikasi di latar (sidik jari
+    // didaftarkan atau dihapus dari pengaturan sistem).
+    _refreshBiometrics();
     final since = _backgroundedAt;
     _backgroundedAt = null;
     if (since == null) return;

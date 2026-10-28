@@ -1,5 +1,6 @@
 import 'package:dompetku/core/security/app_lock_controller.dart';
 import 'package:dompetku/core/security/app_lock_store.dart';
+import 'package:dompetku/core/security/biometric_gate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,9 +8,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Deriver cepat untuk test: hash hanyalah prefiks tetap + PIN.
 Future<String> _fakeDerive(String pin, String salt) async => 'fake:$pin';
 
+/// Gate tiruan yang statusnya bisa diubah test untuk mensimulasikan
+/// pengguna yang mendaftarkan sidik jari saat aplikasi berjalan.
+class _StubGate extends BiometricGate {
+  _StubGate(this.statusValue);
+
+  BiometricStatus statusValue;
+  int statusCalls = 0;
+
+  @override
+  Future<BiometricStatus> status() async {
+    statusCalls++;
+    return statusValue;
+  }
+
+  @override
+  Future<BiometricResult> authenticate({String reason = 'Buka DompetKu'}) async =>
+      const BiometricResult(false);
+}
+
 ProviderContainer createLockContainer({
   LockConfig? initialConfig,
   DateTime Function()? clock,
+  BiometricGate? gate,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -18,6 +39,7 @@ ProviderContainer createLockContainer({
           initialConfig: initialConfig,
           pinDeriver: _fakeDerive,
           clock: clock,
+          gate: gate,
         ),
       ),
     ],
@@ -191,6 +213,44 @@ void main() {
       notifier.notifyResumed();
 
       expect(notifier.state.isLocked, isFalse);
+    });
+
+    test('hidden susulan sebelum resumed tidak menimpa waktu latar', () async {
+      var now = DateTime(2026, 10, 28, 10);
+      final notifier = await unlockedNotifier(() => now);
+
+      // Urutan nyata di Android: hidden + paused saat pergi, lalu hidden
+      // lagi sesaat sebelum resumed.
+      notifier.notifyBackgrounded();
+      now = now.add(const Duration(seconds: 45));
+      notifier.notifyBackgrounded();
+      notifier.notifyResumed();
+
+      expect(notifier.state.isLocked, isTrue);
+    });
+
+    test('resume me-refresh ketersediaan sidik jari', () async {
+      final gate = _StubGate(BiometricStatus.notEnrolled);
+      final container = createLockContainer(
+        initialConfig: enabledConfig(),
+        gate: gate,
+      );
+      expect(container.read(appLockControllerProvider).isLocked, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(appLockControllerProvider).biometricStatus,
+        BiometricStatus.notEnrolled,
+      );
+
+      // Pengguna mendaftarkan sidik jari di pengaturan sistem, lalu kembali.
+      gate.statusValue = BiometricStatus.available;
+      final callsBefore = gate.statusCalls;
+      container.read(appLockControllerProvider.notifier).notifyResumed();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(gate.statusCalls, greaterThan(callsBefore));
+      expect(container.read(appLockControllerProvider).biometricStatus,
+          BiometricStatus.available);
     });
   });
 
