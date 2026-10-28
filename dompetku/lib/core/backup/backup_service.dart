@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -83,13 +83,50 @@ class BackupService {
       final sidecar = File('${target.path}$suffix');
       if (await sidecar.exists()) await sidecar.delete();
     }
-    await target.writeAsBytes(bytes, flush: true);
+    await replaceDatabaseFile(target, bytes);
 
     _ref.invalidate(databaseProvider);
     // Tunggu database baru siap sebelum UI melanjutkan.
     await _ref.read(databaseProvider).customSelect('SELECT 1').getSingle();
     return true;
   }
+
+  /// Suffix salinan database aktif yang dibuat tepat sebelum restore.
+  static const String preRestoreSuffix = '.pre-restore';
+
+  /// Mengganti [target] dengan isi backup.
+  ///
+  /// Isi lama disalin ke `[target].pre-restore` lebih dulu supaya kegagalan
+  /// menulis (misalnya disk penuh) tidak meninggalkan database yang rusak.
+  @visibleForTesting
+  static Future<void> replaceDatabaseFile(
+    File target,
+    Uint8List bytes, {
+    Future<void> Function(File target, Uint8List bytes)? writer,
+  }) async {
+    final safety = File('${target.path}$preRestoreSuffix');
+    if (await target.exists()) {
+      await target.copy(safety.path);
+    } else if (await safety.exists()) {
+      // Salinan dari percobaan lama tidak boleh dipakai memulihkan data
+      // yang tidak pernah aktif di perangkat ini.
+      await safety.delete();
+    }
+
+    try {
+      await (writer ?? _writeBytes)(target, bytes);
+    } on FileSystemException catch (error) {
+      if (!await safety.exists()) rethrow;
+      await safety.copy(target.path);
+      throw BackupException(
+        'Gagal menyimpan database; data lama dikembalikan dari salinan '
+        'pra-restore. ($error)',
+      );
+    }
+  }
+
+  static Future<void> _writeBytes(File target, Uint8List bytes) =>
+      target.writeAsBytes(bytes, flush: true);
 
   Future<File> _databaseFile() async {
     final dir = await getApplicationDocumentsDirectory();

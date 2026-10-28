@@ -245,7 +245,9 @@ class SettingsPage extends ConsumerWidget {
       title: 'Pulihkan Backup?',
       message:
           'Seluruh transaksi, tabungan, dan utang saat ini akan diganti '
-          'dengan isi file backup. Tindakan ini tidak bisa dibatalkan.',
+          'dengan isi file backup. Data lama disalin ke file pengaman '
+          'terlebih dahulu, tetapi penggantian ini tidak bisa dibatalkan '
+          'dari aplikasi.',
       confirmLabel: 'Pilih File',
       destructive: true,
     );
