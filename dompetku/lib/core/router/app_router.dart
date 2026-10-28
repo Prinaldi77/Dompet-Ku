@@ -6,6 +6,8 @@ import '../../features/dashboard/dashboard_page.dart';
 import '../../features/debts/debt_detail_page.dart';
 import '../../features/debts/debt_form_page.dart';
 import '../../features/debts/debts_page.dart';
+import '../../features/lock/lock_page.dart';
+import '../../features/lock/lock_setup_page.dart';
 import '../../features/onboarding/onboarding_page.dart';
 import '../../features/savings/savings_detail_page.dart';
 import '../../features/savings/savings_goal_form_page.dart';
@@ -17,11 +19,31 @@ import '../../features/transactions/transactions_page.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
-GoRouter createAppRouter({required bool showOnboarding}) {
+const String lockPath = '/lock';
+
+GoRouter createAppRouter({
+  required bool showOnboarding,
+  required Listenable lockRefresh,
+  required bool Function() isLocked,
+}) {
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: showOnboarding ? '/onboarding' : '/dashboard',
+    refreshListenable: lockRefresh,
+    redirect: (context, state) {
+      final location = state.matchedLocation;
+      if (isLocked()) return location == lockPath ? null : lockPath;
+      if (location == lockPath) {
+        return showOnboarding ? '/onboarding' : '/dashboard';
+      }
+      return null;
+    },
     routes: [
+      GoRoute(
+        path: lockPath,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (_, __) => const LockPage(),
+      ),
       GoRoute(
         path: '/onboarding',
         parentNavigatorKey: rootNavigatorKey,
@@ -113,6 +135,13 @@ GoRouter createAppRouter({required bool showOnboarding}) {
         path: '/settings/categories',
         parentNavigatorKey: rootNavigatorKey,
         builder: (_, __) => const CategoriesPage(),
+      ),
+      GoRoute(
+        path: '/settings/lock',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => LockSetupPage(
+          mode: state.uri.queryParameters['mode'] ?? 'create',
+        ),
       ),
     ],
   );

@@ -6,6 +6,8 @@ import '../../core/app_info.dart';
 import '../../core/backup/backup_reminder.dart';
 import '../../core/backup/backup_service.dart';
 import '../../core/providers/app_providers.dart';
+import '../../core/security/app_lock_controller.dart';
+import '../../core/security/biometric_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_mode.dart';
 import '../../core/utils/formatters.dart';
@@ -19,6 +21,7 @@ class SettingsPage extends ConsumerWidget {
     final balance = ref.watch(mainBalanceProvider).valueOrNull ?? 0;
     final themeMode = ref.watch(themeModeProvider);
     final lastBackupAt = ref.watch(lastBackupAtProvider);
+    final lockState = ref.watch(appLockControllerProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pengaturan')),
@@ -35,6 +38,20 @@ class SettingsPage extends ConsumerWidget {
               ThemeMode.system => 'Mengikuti sistem',
             },
             onTap: () => _pickThemeMode(context, ref),
+          ),
+          const SizedBox(height: 20),
+          const _SectionLabel('Keamanan'),
+          _SettingsTile(
+            icon: lockState.enabled
+                ? Icons.lock_rounded
+                : Icons.lock_open_rounded,
+            title: 'Kunci Aplikasi',
+            subtitle: switch ((lockState.enabled, lockState.biometricEnabled)) {
+              (false, _) => 'Belum aktif · pasang PIN agar data tidak terbuka',
+              (true, true) => 'PIN + sidik jari aktif · auto-lock 30 detik',
+              (true, false) => 'PIN aktif · auto-lock 30 detik',
+            },
+            onTap: () => _openLockFlow(context, ref, lockState),
           ),
           const SizedBox(height: 20),
           const _SectionLabel('Keuangan'),
@@ -89,6 +106,92 @@ class SettingsPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  void _openLockFlow(BuildContext context, WidgetRef ref, AppLockState state) {
+    if (!state.enabled) {
+      context.push('/settings/lock?mode=create');
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        void close(void Function() after) {
+          Navigator.of(sheetContext).pop();
+          after();
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.lock_rounded),
+                title: const Text('Kunci sekarang'),
+                subtitle: const Text('Langkah menuju layar PIN'),
+                onTap: () =>
+                    close(() => ref.read(appLockControllerProvider.notifier).lock()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.pin_rounded),
+                title: const Text('Ganti PIN'),
+                onTap: () => close(() => context.push('/settings/lock?mode=change')),
+              ),
+              ListTile(
+                leading: Icon(
+                  state.biometricEnabled
+                      ? Icons.fingerprint_rounded
+                      : Icons.no_encryption_rounded,
+                ),
+                title: Text(
+                  state.biometricEnabled
+                      ? 'Matikan sidik jari'
+                      : 'Aktifkan sidik jari',
+                ),
+                subtitle: state.biometricStatus == BiometricStatus.available
+                    ? null
+                    : const Text('Belum ada sidik jari terdaftar di perangkat ini'),
+                enabled: state.biometricStatus == BiometricStatus.available,
+                onTap: () => close(
+                  () => _toggleBiometric(ref, messenger, !state.biometricEnabled),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.lock_open_rounded),
+                title: const Text(
+                  'Matikan kunci aplikasi',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                onTap: () =>
+                    close(() => context.push('/settings/lock?mode=disable')),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleBiometric(
+    WidgetRef ref,
+    ScaffoldMessengerState messenger,
+    bool enabled,
+  ) async {
+    messenger.hideCurrentSnackBar();
+    try {
+      await ref.read(appLockControllerProvider.notifier).setBiometric(enabled);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled ? 'Sidik jari aktif.' : 'Sidik jari dimatikan, gunakan PIN.',
+          ),
+        ),
+      );
+    } on AppLockException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    }
   }
 
   Future<void> _pickThemeMode(BuildContext context, WidgetRef ref) async {
